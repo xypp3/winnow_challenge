@@ -1,0 +1,7 @@
+{
+  "menu": "Sample Menu",
+  "items": [
+    {"name": "Soup", "price": 5.0},
+    {"name": "Salad", "price": 7.5}
+  ]
+}

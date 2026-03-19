@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  stub-manifest:
+    build:
+      context: .
+      dockerfile: stub/manifest-server/Dockerfile
+    ports:
+      - "8080:8080"
+
+  edge-service:
+    build: .
+    depends_on:
+      - stub-manifest
+    environment:
+      MANIFEST_URL: http://stub-manifest:8080/v2/manifest
+      DATA_DIR: /tmp/winnow
+      STATE_FILE: /tmp/winnow/state.json
+    volumes:
+      - winnow-data:/tmp/winnow
+    restart: unless-stopped
+
+volumes:
+  winnow-data: {}

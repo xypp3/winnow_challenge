@@ -5,6 +5,7 @@
 - [ ] poll the manifest endpoint for changes
 - [ ] process changes to the manifest
 - [ ] download new content to the device
+- [ ] Implement a dummy MQTT event publisher that writes the payload to stdout. Example: `Publishing {"action": "ADDED", "key": "icon-1.png"}`
 
 ### Non functional
 - [ ] devices can be turned off at any time by kitchen staff
@@ -20,6 +21,10 @@
 - [ ] containerize
     - says it will run in container on device
 - [ ] preference for Go
+
+### Assumptions
+- manifest is source of truth
+- expired content is fine if errors when replacing
 
 ## Discussion
 ### Key algorithm/ flow
@@ -47,3 +52,22 @@
 ### Dependencies
 - bolt, KV database written in Golang
 - Prometheus client, to link to prometheus observability tooling
+
+## Quickstart (MVP setup)
+- Prereqs: Go 1.21+, Docker (optional for containers).
+- Start the stub manifest server (serves `/v2/manifest` and static content): `go run ./stub/manifest-server`
+- Run the edge service locally against the stub (defaults to http://localhost:8080): `go run ./cmd/winnow-edge`
+- Downloaded content and state are written to `/tmp/winnow/` by default.
+
+## Docker
+- Build and run both services: `docker compose up --build`
+- Stub manifest server: exposed on host port 8080.
+- Edge service: uses `MANIFEST_URL=http://stub-manifest:8080/v2/manifest` and persists data to a named volume `winnow-data` mounted at `/tmp/winnow`.
+
+## Configuration (env vars)
+- `MANIFEST_URL` (default `http://localhost:8080/v2/manifest`)
+- `DEVICE_TOKEN` (optional header for manifest requests)
+- `POLL_INTERVAL` (default `30s`)
+- `HTTP_TIMEOUT` (default `10s`)
+- `DATA_DIR` (default `/tmp/winnow`)
+- `STATE_FILE` (default `/tmp/winnow/state.json`)
