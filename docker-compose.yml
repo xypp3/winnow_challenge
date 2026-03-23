@@ -7,6 +7,8 @@ services:
       dockerfile: stub/manifest-server/Dockerfile
     ports:
       - "8080:8080"
+    environment:
+      BASE_URL: http://stub-manifest:8080
 
   edge-service:
     build: .

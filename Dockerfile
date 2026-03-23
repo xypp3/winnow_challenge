@@ -8,7 +8,6 @@ RUN go build -o /out/winnow-edge ./cmd/winnow-edge
 
 FROM debian:bookworm-slim
 RUN useradd -m appuser
-USER appuser
 WORKDIR /home/appuser
 
 COPY --from=build /out/winnow-edge /usr/local/bin/winnow-edge
