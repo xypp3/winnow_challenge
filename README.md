@@ -8,9 +8,10 @@
 - Downloaded content and state are written to `/tmp/winnow/` by default.
 
 ### Docker
-- Build and run both services: `docker compose up --build`
+- Build and run both services: `sudo docker compose up --build`
 - Stub manifest server: exposed on host port 8080.
-- Edge service: uses `MANIFEST_URL=http://stub-manifest:8080/v2/manifest` and persists data to a named volume `winnow-data` mounted at `/tmp/winnow`.
+- Edge service: uses `MANIFEST_URL=http://stub-manifest:8080/v2/manifest`
+    - persists data to a named volume `winnow-data` mounted at `/tmp/winnow`.
 
 ### Configuration (env vars)
 - `MANIFEST_URL` (default `http://localhost:8080/v2/manifest`)
@@ -44,11 +45,26 @@
 - [x] preference for Go
 
 ### Assumptions
-- manifest is source of truth
 - expired content is fine if there are errors in the replacing process or no new version
-- ETags, if present, are unique
+    - partial manifest download is better than no manifest download
+- ETags are unique
+- docker is container engine
+- new manifests get generated at most at 30s intervals
+- no external dependencies allowed
+    - addressed in [todos](./TODO.md)
+- IoT device is not storage space constrained
+    - addressed in [todos](./TODO.md)
+- IoT device is only requesting content it should have access to
+    - addressed in [todos](./TODO.md)
+- Downloaded content is complete and correct
+    - addressed in [todos](./TODO.md)
 
-## Discussion
+## Design/ Architecture
+### System design
+- Centralized server that controls a fleet of IoT clients
+- The client periodically poll server for updates
+    - Instead of a webhook/ callback approach to conserve edge device resources
+
 ### Key algorithm/ flow
 - Do a state machine loop
     - Download manifest > Download items > Update stable manifest ETag
@@ -63,14 +79,18 @@
     - Blob storage: filesystem in `/tmp/winnow/`
         - `stable/{item type}/{blob item}`
         - `{manifest ETag}/{item type}/{blob name}`
-    - ETag cache KeyValue DB (also in `/tmp/winnow/`
+    - Running state and ETag cache (json) (also in `/tmp/winnow/`)
         - Per manifest ETag
         - Per item/content ETag blob
 - Observability:
     - slog: built in structured logs
-    - Prometheus: standard metrics service
-        - unsure if appropriate for IoT but
 
 ### Dependencies
-- bolt, KV database written in Golang
-- Prometheus client, to link to prometheus observability tooling
+- Unsure what the dependency policy is so only golang stdlib is used
+
+## Open Questions
+- Do newer manifests always succeed the older ones? or do they coexist?
+- e.g. if an endpoint never returns does the service keep trying to download the content forever?
+    - or is there a retry limit?
+- Do we wanna persist old content and manifests for rollbacks?
+- How do we do manifest server discovery?

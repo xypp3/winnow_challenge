@@ -1,0 +1,13 @@
+# TODO
+- If dependencies allowed then:
+    - For running state and etags: **sqlite DB**
+        - better performance and reliability as number of blobs grows
+        - also good choice for embedded applications
+    - For more metrics: **prometheus client**
+        - Allow for instrumentation of application + resource metrics
+- Use TLS for https
+- Use protobufs if manifests are large or often
+- Use a UDP based protocol for content download
+- Use asymentric keys to verify that this IoT device is the authorized client for a specific endpoint/content
+- A old content/blob removal mechanism to manage device storage space
+- Content hashes to verify downloaded content is not corrupted
