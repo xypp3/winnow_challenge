@@ -3,6 +3,7 @@ package edge
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,10 +18,16 @@ type ItemState struct {
 	URI         string    `json:"uri"`
 }
 
+type ManifestState struct {
+	ETag    string               `json:"etag"`
+	Status  string               `json:"status"` // pending|complete
+	Items   map[string]ItemState `json:"items"`
+	Updated time.Time            `json:"updated"`
+}
+
 type State struct {
-	ManifestETag   string               `json:"manifest_etag"`
-	ManifestStatus string               `json:"manifest_status"` // pending|complete
-	Items          map[string]ItemState `json:"items"`
+	CurrentETag string                   `json:"current_etag"`
+	Manifests   map[string]ManifestState `json:"manifests"`
 }
 
 type Store struct {
@@ -33,7 +40,7 @@ func NewStore(path string) (*Store, error) {
 	s := &Store{
 		path: path,
 		state: State{
-			Items: make(map[string]ItemState),
+			Manifests: make(map[string]ManifestState),
 		},
 	}
 	if err := s.load(); err != nil {
@@ -45,70 +52,101 @@ func NewStore(path string) (*Store, error) {
 func (s *Store) ManifestETag() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state.ManifestETag
+	return s.state.CurrentETag
 }
 
 func (s *Store) ManifestStatus() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state.ManifestStatus
+	if m, ok := s.state.Manifests[s.state.CurrentETag]; ok {
+		return m.Status
+	}
+	return ""
 }
 
 func (s *Store) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Copy maps to avoid callers mutating internal state.
-	items := make(map[string]ItemState, len(s.state.Items))
-	for k, v := range s.state.Items {
-		items[k] = v
-	}
-	return State{
-		ManifestETag:   s.state.ManifestETag,
-		ManifestStatus: s.state.ManifestStatus,
-		Items:          items,
-	}
+	return s.state
 }
 
 func (s *Store) Item(key string) (ItemState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	item, ok := s.state.Items[key]
+	m, ok := s.state.Manifests[s.state.CurrentETag]
+	if !ok {
+		return ItemState{}, false
+	}
+	item, ok := m.Items[key]
 	return item, ok
 }
 
 func (s *Store) UpdateItem(key string, item ItemState) error {
-	return s.update(func(st *State) {
-		st.Items[key] = item
+	return s.update(func(st *State) error {
+		m, ok := st.Manifests[st.CurrentETag]
+		if !ok {
+			return fmt.Errorf("manifest %s not found", st.CurrentETag)
+		}
+		if m.Items == nil {
+			m.Items = make(map[string]ItemState)
+		}
+		m.Items[key] = item
+		m.Updated = time.Now().UTC()
+		st.Manifests[st.CurrentETag] = m
+		return nil
 	})
 }
 
 func (s *Store) UpdateManifestETag(etag string) error {
-	return s.update(func(st *State) {
-		st.ManifestETag = etag
-		st.ManifestStatus = "pending"
-		st.Items = make(map[string]ItemState)
+	return s.update(func(st *State) error {
+		st.CurrentETag = etag
+		st.Manifests[etag] = ManifestState{
+			ETag:    etag,
+			Status:  "pending",
+			Items:   make(map[string]ItemState),
+			Updated: time.Now().UTC(),
+		}
+		return nil
 	})
 }
 
 func (s *Store) UpdateManifestStatus(status string) error {
-	return s.update(func(st *State) {
-		st.ManifestStatus = status
+	return s.update(func(st *State) error {
+		m, ok := st.Manifests[st.CurrentETag]
+		if !ok {
+			return fmt.Errorf("manifest %s not found", st.CurrentETag)
+		}
+		m.Status = status
+		m.Updated = time.Now().UTC()
+		st.Manifests[st.CurrentETag] = m
+		return nil
 	})
 }
 
-// TODO: FIX htis terrible funciton
 func (s *Store) UpdateItemStatus(key string, status string) error {
-	return s.update(func(st *State) {
-		item := s.state.Items[key]
+	return s.update(func(st *State) error {
+		m, ok := st.Manifests[st.CurrentETag]
+		if !ok {
+			return fmt.Errorf("manifest %s not found", st.CurrentETag)
+		}
+		item, ok := m.Items[key]
+		if !ok {
+			return fmt.Errorf("item %s not found", key)
+		}
 		item.Status = status
-		s.state.Items[key] = item
+		m.Items[key] = item
+		m.Updated = time.Now().UTC()
+		st.Manifests[st.CurrentETag] = m
+		return nil
 	})
 }
 
-func (s *Store) update(apply func(*State)) error {
+func (s *Store) update(apply func(*State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	apply(&s.state)
+	if err := apply(&s.state); err != nil {
+		return err
+	}
 	return s.saveLocked()
 }
 
@@ -132,8 +170,8 @@ func (s *Store) load() error {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		return err
 	}
-	if st.Items == nil {
-		st.Items = make(map[string]ItemState)
+	if st.Manifests == nil {
+		st.Manifests = make(map[string]ManifestState)
 	}
 	s.state = st
 	return nil

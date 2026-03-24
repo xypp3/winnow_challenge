@@ -61,11 +61,13 @@ func (s *Service) Run(ctx context.Context) error {
 func (s *Service) pollManifest(ctx context.Context) ([]Job, bool, error) {
 	currentETag := s.state.ManifestETag()
 	manifestStatus := s.state.ManifestStatus()
+	snapshot := s.state.Snapshot()
 	resp, err := s.client.Fetch(ctx, currentETag)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetch manifest: %w", err)
 	}
 
+	var jobs []Job
 	switch resp.StatusCode {
 	case http.StatusNotModified:
 		if manifestStatus == "complete" {
@@ -73,14 +75,8 @@ func (s *Service) pollManifest(ctx context.Context) ([]Job, bool, error) {
 			return nil, false, nil
 		}
 		slog.Info("manifest unchanged but pending; rebuilding jobs")
-		jobs := s.buildJobsStore()
-		if len(jobs) == 0 {
-			if err := s.state.UpdateManifestStatus("complete"); err != nil {
-				slog.Error("failed to mark manifest complete", "error", err)
-			}
-			return nil, false, nil
-		}
-		return jobs, true, nil
+
+		jobs = s.buildJobsFromStore(snapshot.Manifests[currentETag].Items)
 	case http.StatusOK:
 		if resp.ETag == "" {
 			slog.Warn("manifest missing ETag; proceeding but persistence may be noisy")
@@ -89,21 +85,25 @@ func (s *Service) pollManifest(ctx context.Context) ([]Job, bool, error) {
 				return nil, false, fmt.Errorf("save manifest etag: %w", err)
 			}
 		}
-		jobs := s.buildJobsResponse(resp.Manifest)
-		if len(jobs) == 0 {
-			if err := s.state.UpdateManifestStatus("complete"); err != nil {
-				slog.Error("failed to mark manifest complete", "error", err)
-			}
-		}
-		return jobs, true, nil
+
+		jobs = s.buildJobsFromManifest(resp.Manifest)
 	default:
 		return nil, false, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
+
+	if len(jobs) == 0 {
+		if err := s.state.UpdateManifestStatus("complete"); err != nil {
+			slog.Error("failed to mark manifest complete", "error", err)
+		}
+		return nil, false, nil
+	}
+	return jobs, true, nil
 }
 
-func (s *Service) buildJobsStore() []Job {
+func (s *Service) buildJobsFromStore(stateItems map[string]ItemState) []Job {
 	pending := make([]Job, 0)
-	for key, st := range s.state.Snapshot().Items {
+
+	for key, st := range stateItems {
 		if st.Status == "complete" {
 			continue
 		}
@@ -133,7 +133,7 @@ func (s *Service) buildJobsStore() []Job {
 	return pending
 }
 
-func (s *Service) buildJobsResponse(manifestData map[string]ManifestItem) []Job {
+func (s *Service) buildJobsFromManifest(manifestData map[string]ManifestItem) []Job {
 	pending := make([]Job, 0)
 
 	for contentType, m := range manifestData {
