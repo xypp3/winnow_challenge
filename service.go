@@ -39,15 +39,17 @@ func (s *Service) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	for {
-		jobs, isNew, err := s.pollManifest(ctx)
+		jobs, isNew, etag, err := s.pollManifest(ctx)
 		if err != nil {
-			slog.Error("polling failed", "error", err)
+			slog.Error("polling failed", "error", err, "manifest_etag", etag)
 		} else if isNew && len(jobs) > 0 {
 			if err := s.runWorkers(ctx, jobs); err != nil {
 				slog.Error("worker pool failed", "error", err)
+			} else {
+				s.state.UpdateCurrentEtag(etag)
 			}
 		} else {
-			slog.Info("no work items")
+			slog.Info("no work items", "manifest_etag", etag)
 		}
 
 		select {
@@ -58,13 +60,13 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Service) pollManifest(ctx context.Context) ([]Job, bool, error) {
+func (s *Service) pollManifest(ctx context.Context) ([]Job, bool, string, error) {
 	currentETag := s.state.ManifestETag()
 	manifestStatus := s.state.ManifestStatus()
 	snapshot := s.state.Snapshot()
 	resp, err := s.client.Fetch(ctx, currentETag)
 	if err != nil {
-		return nil, false, fmt.Errorf("fetch manifest: %w", err)
+		return nil, false, currentETag, fmt.Errorf("fetch manifest: %w", err)
 	}
 
 	var jobs []Job
@@ -72,32 +74,36 @@ func (s *Service) pollManifest(ctx context.Context) ([]Job, bool, error) {
 	case http.StatusNotModified:
 		if manifestStatus == "complete" {
 			slog.Info("manifest unchanged")
-			return nil, false, nil
+			return nil, false, currentETag, nil
 		}
 		slog.Info("manifest unchanged but pending; rebuilding jobs")
 
-		jobs = s.buildJobsFromStore(snapshot.Manifests[currentETag].Items)
+		if m, ok := snapshot.Manifests[currentETag]; ok {
+			jobs = s.buildJobsFromStore(m.Items)
+		}
 	case http.StatusOK:
 		if resp.ETag == "" {
 			slog.Warn("manifest missing ETag; proceeding but persistence may be noisy")
 		} else {
 			if err := s.state.UpdateManifestETag(resp.ETag); err != nil {
-				return nil, false, fmt.Errorf("save manifest etag: %w", err)
+				return nil, false, currentETag, fmt.Errorf("save manifest etag: %w", err)
 			}
+			snapshot = s.state.Snapshot()
+			currentETag = resp.ETag
 		}
 
 		jobs = s.buildJobsFromManifest(resp.Manifest)
 	default:
-		return nil, false, fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return nil, false, currentETag, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
 	if len(jobs) == 0 {
 		if err := s.state.UpdateManifestStatus("complete"); err != nil {
 			slog.Error("failed to mark manifest complete", "error", err)
 		}
-		return nil, false, nil
+		return nil, false, currentETag, nil
 	}
-	return jobs, true, nil
+	return jobs, true, currentETag, nil
 }
 
 func (s *Service) buildJobsFromStore(stateItems map[string]ItemState) []Job {

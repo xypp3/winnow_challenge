@@ -141,6 +141,13 @@ func (s *Store) UpdateItemStatus(key string, status string) error {
 	})
 }
 
+func (s *Store) UpdateCurrentEtag(etag string) error {
+	return s.update(func(st *State) error {
+		st.CurrentETag = etag
+		return nil
+	})
+}
+
 func (s *Store) update(apply func(*State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,6 +171,9 @@ func (s *Store) load() error {
 	}
 	if err != nil {
 		return err
+	}
+	if len(raw) == 0 {
+		return s.saveLocked()
 	}
 
 	var st State
