@@ -33,13 +33,13 @@
     - Example: `Publishing {"action": "ADDED", "key": "icon-1.png"}`
 
 ### Non functional
-- [ ] devices can be turned off at any time by kitchen staff
+- [x] devices can be turned off at any time by kitchen staff
     - Some kind of persistence and error recovery if poweroff mid process
-- [ ] there are thousands of devices in the fleet
+- [x] there are thousands of devices in the fleet
     - Don't be too chatty
-- [ ] new content types can be added to the manifest service
+- [x] new content types can be added to the manifest service
     - Allow for changes in content types/ folders
-- [ ] stale content is preferable to no content
+- [x] stale content is preferable to no content
     - Error recovery should just assume previous safe/stable state
 - [x] a stub manifest server will be useful for testing
     - Allows for end-to-end and fuzz tests
@@ -90,10 +90,3 @@
 
 ### Dependencies
 - Unsure what the dependency policy is so only golang stdlib is used
-
-## Open Questions
-- Do newer manifests always succeed the older ones? or do they coexist?
-- e.g. if an endpoint never returns does the service keep trying to download the content forever?
-    - or is there a retry limit?
-- Do we wanna persist old content and manifests for rollbacks?
-- How do we do manifest server discovery?
