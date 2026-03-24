@@ -13,11 +13,14 @@ type ItemState struct {
 	ETag        string    `json:"etag"`
 	Path        string    `json:"path"`
 	LastUpdated time.Time `json:"last_updated"`
+	Status      string    `json:"status"` // pending|complete
+	URI         string    `json:"uri"`
 }
 
 type State struct {
-	ManifestETag string               `json:"manifest_etag"`
-	Items        map[string]ItemState `json:"items"`
+	ManifestETag   string               `json:"manifest_etag"`
+	ManifestStatus string               `json:"manifest_status"` // pending|complete
+	Items          map[string]ItemState `json:"items"`
 }
 
 type Store struct {
@@ -45,6 +48,12 @@ func (s *Store) ManifestETag() string {
 	return s.state.ManifestETag
 }
 
+func (s *Store) ManifestStatus() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state.ManifestStatus
+}
+
 func (s *Store) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -54,8 +63,9 @@ func (s *Store) Snapshot() State {
 		items[k] = v
 	}
 	return State{
-		ManifestETag: s.state.ManifestETag,
-		Items:        items,
+		ManifestETag:   s.state.ManifestETag,
+		ManifestStatus: s.state.ManifestStatus,
+		Items:          items,
 	}
 }
 
@@ -75,6 +85,23 @@ func (s *Store) UpdateItem(key string, item ItemState) error {
 func (s *Store) UpdateManifestETag(etag string) error {
 	return s.update(func(st *State) {
 		st.ManifestETag = etag
+		st.ManifestStatus = "pending"
+		st.Items = make(map[string]ItemState)
+	})
+}
+
+func (s *Store) UpdateManifestStatus(status string) error {
+	return s.update(func(st *State) {
+		st.ManifestStatus = status
+	})
+}
+
+// TODO: FIX htis terrible funciton
+func (s *Store) UpdateItemStatus(key string, status string) error {
+	return s.update(func(st *State) {
+		item := s.state.Items[key]
+		item.Status = status
+		s.state.Items[key] = item
 	})
 }
 

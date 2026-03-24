@@ -20,6 +20,9 @@
 - `HTTP_TIMEOUT` (default `10s`)
 - `DATA_DIR` (default `/tmp/winnow`)
 - `STATE_FILE` (default `/tmp/winnow/state.json`)
+- `WORKER_COUNT` (default `4`)
+- `DOWNLOAD_TIMEOUT` (default `15s` per item)
+- `MAX_ATTEMPTS` (default `3` per item)
 
 ## Requirements
 ### Functional
